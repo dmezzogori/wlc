@@ -13,16 +13,6 @@ def earliest_due_date(job):
     return job.due_date
 
 
-# def operation_due_date(c):
-#     def inner(job):
-#         env = job.env
-#         due_date = job.due_date
-#         n = len(job.machines)
-#         i = sum(job._visited.values())
-#         ret = ((due_date - env.now) - (n - i) * c)
-#         return ret
-#     return inner
-
 class operation_due_date:
 
     def __init__(self, c):

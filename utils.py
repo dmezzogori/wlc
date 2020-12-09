@@ -89,11 +89,6 @@ class Test:
     def __getitem__(self, idx):
         return self.results[idx]
 
-    # def __getstate__(self):
-    #     state = self.__dict__.copy()
-    #     del state['bar']
-    #     return state
-
     def _parallel(self):
         results = []
 
