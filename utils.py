@@ -16,39 +16,28 @@ def set_seed(seed):
 def confint(arr):
     return st.norm.interval(0.95, loc=np.mean(arr), scale=st.sem(arr))
 
-# def density(arr):
-#     X = np.array(arr).reshape(-1, 1)
-
-#     start = min(arr)
-#     stop = max(arr)
-#     rng = stop - start
-
-#     X_plot = np.linspace(
-#         start=start - 0.1 * rng,
-#         stop=stop + 0.1 * rng,
-#         num=2000)[:, np.newaxis]
-#     kde = KernelDensity(kernel="gaussian", bandwidth=10).fit(X)
-#     log_dens = kde.score_samples(X_plot)
-#     with plt.style.context("ggplot"):
-#         plt.plot(X_plot, np.exp(log_dens))
-
 def density(**kwargs):
     for name, arr in kwargs.items():
-        X = np.array(arr).reshape(-1, 1)
+        if name != 'title':
+            X = np.array(arr).reshape(-1, 1)
 
-        start = min(arr)
-        stop = max(arr)
-        rng = stop - start
+            start = min(arr)
+            stop = max(arr)
+            rng = stop - start
 
-        X_plot = np.linspace(
-            start=start - 0.1 * rng,
-            stop=stop + 0.1 * rng,
-            num=2000)[:, np.newaxis]
-        kde = KernelDensity(kernel="gaussian", bandwidth=10).fit(X)
-        log_dens = kde.score_samples(X_plot)
-        with plt.style.context("ggplot"):
-            plt.plot(X_plot, np.exp(log_dens), label=name)
-        plt.legend()
+            X_plot = np.linspace(
+                start=start - 0.1 * rng,
+                stop=stop + 0.1 * rng,
+                num=2000)[:, np.newaxis]
+            kde = KernelDensity(kernel="gaussian", bandwidth=10).fit(X)
+            log_dens = kde.score_samples(X_plot)
+            with plt.style.context("ggplot"):
+                plt.plot(X_plot, np.exp(log_dens), label=name.replace("_", " ").capitalize())
+
+    if 'title' in kwargs:
+        plt.title(kwargs['title'])
+    plt.legend()
+
 
 def build(shopfloor_params, router_params):
     env = simpy.Environment()
@@ -56,9 +45,11 @@ def build(shopfloor_params, router_params):
     router = Router(shopfloor, **router_params)
     return env, router, shopfloor
 
+
 def run(env, until=3650, seed=None):
     set_seed(seed)
     env.run(until=until)
+
 
 def worker(args):
     build_params, run_params, return_stats = args
@@ -98,21 +89,21 @@ class Test:
     def __getitem__(self, idx):
         return self.results[idx]
 
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        del state['bar']
-        return state
+    # def __getstate__(self):
+    #     state = self.__dict__.copy()
+    #     del state['bar']
+    #     return state
 
     def _parallel(self):
         results = []
 
         with Pool(4) as pool:
             multiple_results = pool.map_async(
-                worker, self.todo, callback=results.extend
-            )
+                worker, self.todo, callback=results.extend)
             self.track_job(multiple_results)
             multiple_results.wait()
 
+        multiple_results.get()
         return results
 
     def _serial(self):
@@ -142,11 +133,11 @@ class Lambda:
     def evolving(self):
         return abs(np.cos(self.env.now) + random.gauss(self._lambd, self._noise))
 
-def truncated_2_erlang(mean):
+def truncated_2_erlang(mean, max_value=4.0):
 
     lambd = 1 / mean
 
     out = float('inf')
-    while out > 4.0:
+    while out > max_value:
         out = random.expovariate(lambd) + random.expovariate(lambd)
     return out

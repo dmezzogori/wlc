@@ -13,28 +13,15 @@ def earliest_due_date(job):
     return job.due_date
 
 
-# def operation_due_date(c):
-#     def inner(job):
-#         env = job.env
-#         due_date = job.due_date
-#         n = len(job.machines)
-#         i = sum(job._visited.values())
-#         ret = ((due_date - env.now) - (n - i) * c)
-#         return ret
-#     return inner
-
-class operation_due_date:
-
-    def __init__(self, c):
-        self.c = c
-
-    def __call__(self, job):
+def operation_due_date(c):
+    def inner(job):
         env = job.env
         due_date = job.due_date
         n = len(job.machines)
         i = sum(job._visited.values())
-        ret = ((due_date - env.now) - (n - i) * self.c)
+        ret = ((due_date - env.now) - (n - i) * c)
         return ret
+    return inner
 
 
 class Job:
@@ -63,8 +50,7 @@ class Job:
         "entry_state",
 
         "push_it",
-        "due_date_changed",
-        "workload_contribution"
+        "worload_contribution"
     )
 
     def __init__(self, env, family, routing, due_date, mean_processing_time, effective, corrected_load):
@@ -81,7 +67,6 @@ class Job:
         self.family = family
         self.routing = routing
         self.due_date = due_date
-        self.due_date_changed = False
         self.arrival_date = self.env.now
         self.mean_processing_time = mean_processing_time
         self.effective = effective
@@ -104,12 +89,12 @@ class Job:
         # as soon as the job is created the workload contribution
         # and the wip per machine are calculated,
         # accordingly to corrected_load and effective.
-        self.workload_contribution = {}
+        self.worload_contribution = {}
         self.machine_wip = {}
         for i, (machine, processing_time) in enumerate(self.routing):
             n = processing_time if self.effective else self.mean_processing_time
             d = (i + 1) if self.corrected_load else 1
-            self.workload_contribution[machine] = n / d
+            self.worload_contribution[machine] = n / d
             self.machine_wip[machine] = n
 
         self._entry_time = {}
@@ -286,6 +271,23 @@ class Job:
     def psp_waiting(self):
         """Returns the waiting time in the PSP"""
         return self.start - self.arrival_date
+
+    # def workload(self, machine):
+    #     """Returns the job's workload at `machine`, if the job is currently 
+    #     being processed at `machine`, otherwise returns 0."""
+    #     if machine == self.active_machine:
+    #         return self[machine] / (1 + self.working_on)
+    #     return 0
+
+    # def norm(self, machine):
+    #     """Returns the job's contribution to the norm at `machine`, if the job has yet
+    #     to visit the `machine`, otherwise returns 0."""
+    #     if self.visits(machine) and not self.visited(machine):
+    #         if self.corrected_load:
+    #             return self[machine] / (self.machines.index(machine) + 1)
+    #         else:
+    #             return self[machine]
+    #     return 0
 
     @property
     def _due_date_delta(self):
@@ -567,8 +569,8 @@ class ShopFloor:
                     self.jobs_doing.append(job)
 
                     # aggiornamento workload del job, per tutte le macchine da visitare
-                    for machine, workload_contribution in job.workload_contribution.items():
-                        self.machine_workload[machine] += job.workload_contribution[machine]
+                    for machine, workload_contribution in job.worload_contribution.items():
+                        self.machine_workload[machine] += job.worload_contribution[machine]
 
                     # aggiornamento del wip totale
                     self.total_wip += job.total_wip
@@ -581,17 +583,43 @@ class ShopFloor:
     def render(self):
         print(str(self).replace('\n', ' '), end="\r", flush=True)
 
-    def insert(self, job):
-        if self.record_insert_status and job.entry_state is None:
-            job.entry_state = self.status(job)  # registriamo lo stato del sistema
+    # def reset_event(self, event):
+    #     setattr(self, event, simpy.Event(self.env))
 
+    def insert(self, job):
         if self.env.now > self.warmup:  # warmup terminato
             # prima volta che il job entra nel psp
+            if self.record_insert_status and job.entry_state is None:
+                job.entry_state = self.status(job)  # registriamo lo stato del sistema
                 if self.due_date_setter:  # occorre concordare la due date?
                     new_due_date = self.due_date_setter(job)
                     if new_due_date is not None:
                         job.due_date = new_due_date
         self.psp.add(job)
+
+    # def workload(self, machine):
+    #     return sum(job.workload(machine) for job in self.jobs_doing)
+
+    # def norm(self, machine):
+    #     return sum(job.norm(machine) for job in self.jobs_doing)
+
+    # def workload_control(self):
+    #     while True:
+    #         job = yield self.action_needed
+    #         self.reset_event("action_needed")
+            
+    #         l = [self.norm(machine) + job[machine] < threshold
+    #             for machine, threshold in self.bottlenecks]
+            
+    #         r = all(l)
+    #         self.action_taken.succeed(value=r)
+    
+    # def load(self, machine, relative=True):
+    #     n_jobs = sum(job.visits(machine) for job in self.jobs)
+    #     proc_time = sum(job.processing_time(machine) for job in self.jobs)
+    #     if relative:
+    #         proc_time /= self.env.now
+    #     return n_jobs, proc_time
 
     def work(self, job):
         for machine, processing_time in job:
@@ -615,7 +643,7 @@ class ShopFloor:
                 self.records['machine_utilization'][machine] += processing_time
 
                 # aggiorniamo il workload sulla macchina,
-                self.machine_workload[machine] -= job.workload_contribution[machine]
+                self.machine_workload[machine] -= job.worload_contribution[machine]
 
                 # aggiorniamo il wip generale e della macchina
                 self.total_wip -= wip_contribution
@@ -625,6 +653,10 @@ class ShopFloor:
         self.jobs_doing.pop(self.jobs_doing.index(job))
         # registriamo il job tra quelli terminati
         self.jobs_done.append(job)
+
+    # @property
+    # def wip(self):
+    #     return sum(job.wip for job in self.jobs_doing)
 
     def sample(self):
         now = self.env.now
@@ -653,7 +685,7 @@ class ShopFloor:
             for job in self.jobs_done:
                 throughput_time.append(job.total_throughput_time)
                 psp_waiting_time.append(job.psp_waiting)
-                tardy.append(1 if job.tardy else 0)
+                tardy.append(job.tardy)
                 tardiness.append(job.tardiness)
                 if job.tardy:
                     lateness.append(job.tardiness)
