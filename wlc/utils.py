@@ -1,138 +1,96 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import progressbar
-import scipy.stats as st
-
+import random
+from collections.abc import Iterable, Mapping
 from multiprocessing import Pool
-from sklearn.neighbors import KernelDensity
+from typing import Generic, TypeVar
 
-from .factory import simpy, random, ShopFloor, Router
+import numpy as np
+import progressbar
+import simpy
+from simpy import Environment
 
+from .router import Router
+from .shopfloor import ShopFloor
+from .typings import BuildParams, RouterParams, RunParams, ShopFloorParams
 
-def set_seed(seed):
-    if seed:
-        random.seed(seed)
-
-def confint(arr):
-    return st.norm.interval(0.95, loc=np.mean(arr), scale=st.sem(arr))
-
-def density(**kwargs):
-    for name, arr in kwargs.items():
-        if name != 'title':
-            X = np.array(arr).reshape(-1, 1)
-
-            start = min(arr)
-            stop = max(arr)
-            rng = stop - start
-
-            X_plot = np.linspace(
-                start=start - 0.1 * rng,
-                stop=stop + 0.1 * rng,
-                num=2000)[:, np.newaxis]
-            kde = KernelDensity(kernel="gaussian", bandwidth=10).fit(X)
-            log_dens = kde.score_samples(X_plot)
-            with plt.style.context("ggplot"):
-                plt.plot(X_plot, np.exp(log_dens), label=name.replace("_", " ").capitalize())
-
-    if 'title' in kwargs:
-        plt.title(kwargs['title'])
-    plt.legend()
+R = TypeVar("R", bound=Mapping)
 
 
-def build(shopfloor_params, router_params):
+def build(
+    shopfloor_params: ShopFloorParams, router_params: RouterParams
+) -> tuple[Environment, Router, ShopFloor]:
     env = simpy.Environment()
     shopfloor = ShopFloor(env, **shopfloor_params)
     router = Router(shopfloor, **router_params)
     return env, router, shopfloor
 
 
-def run(env, until=3650, seed=None):
-    set_seed(seed)
+def run(env: Environment, until=3650, seed: int | None = None) -> None:
+    if seed:
+        random.seed(seed)
     env.run(until=until)
 
 
-def worker(args):
+def worker(args: tuple[BuildParams, RunParams, bool]):
     build_params, run_params, return_stats = args
     env, router, shopfloor = build(**build_params)
     run(env, **run_params)
     return shopfloor.stats if return_stats else shopfloor
 
 
-class Test:
-    def __init__(self, build_params, run_params=None, return_stats=False, seed=None, n=4):
+class Runner(Generic[R]):
+    def __init__(
+        self,
+        build_params: BuildParams,
+        run_params: RunParams | None = None,
+        return_stats: bool = False,
+        seed: int | None = None,
+        n: int = 4,
+    ) -> None:
         self.build_params = build_params
-        self.run_params = run_params or {"seed": seed}
+        self.run_params: RunParams = run_params or {"seed": seed}
         self.return_stats = return_stats
         self.seed = seed
         self.n = n
-        self.bar = progressbar.ProgressBar(max_value=self.n)
-        self.results = []
+        self.bar = progressbar.ProgressBar(maxval=self.n)
+        self.results: list[R] = []
 
-    def __call__(self, parallel=False):
+    def __call__(self, parallel=False) -> None:
         self.results = self._parallel() if parallel else self._serial()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Test(build_params={self.build_params!r}, "
             f"run_params={self.run_params!r}, "
             f"seed={self.seed}, n={self.n})"
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         res = self.results
         stats = list(res[0].keys())
         return "\n".join(
-            f"{stat.replace('_', ' ').title()}: {np.mean(i[stat] for i in res)}"
+            f"{stat.replace('_', ' ').title()}: {np.mean([i[stat] for i in res])}"
             for stat in stats
         )
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> R:
         return self.results[idx]
 
-    def _parallel(self):
-        results = []
+    def _parallel(self) -> list[R]:
+        results: list[R] = []
 
         with Pool(4) as pool:
             multiple_results = pool.map_async(
-                worker, self.todo, callback=results.extend)
-            self.track_job(multiple_results)
+                worker, self.todo, callback=results.extend
+            )
             multiple_results.wait()
 
         multiple_results.get()
         return results
 
-    def _serial(self):
+    def _serial(self) -> list[R]:
         return [worker(args) for args in self.bar(self.todo)]
 
     @property
-    def todo(self):
+    def todo(self) -> Iterable[tuple[BuildParams, RunParams, bool]]:
         for _ in range(self.n):
-            yield (self.build_params, self.run_params, self.return_stats)
-
-    def track_job(self, job):
-        while job._number_left > 0:
-            self.bar.update(self.n - job._number_left)
-        self.bar.finish()
-
-class Lambda:
-    def __init__(self, env, lambd, noise=None):
-        self.env = env
-        self._lambd = lambd
-        self._noise = noise
-
-    @property
-    def static(self):
-        return self.evolving_lambd if self._noise else self._lambd
-
-    @property
-    def evolving(self):
-        return abs(np.cos(self.env.now) + random.gauss(self._lambd, self._noise))
-
-def truncated_2_erlang(mean, max_value=4.0):
-
-    lambd = 1 / mean
-
-    out = float('inf')
-    while out > max_value:
-        out = random.expovariate(lambd) + random.expovariate(lambd)
-    return out
+            yield self.build_params, self.run_params, self.return_stats
