@@ -74,7 +74,7 @@ class ShopFloor:
         ShopFloor.due_date_setter = due_date_setter
         self._status = status
 
-        self.psp = SortedList(key=self.sorter_psp)
+        self.psp: SortedList[Job] = SortedList(key=self.sorter_psp)
         self.jobs: list[Job] = []
         self.jobs_doing: list[Job] = []
         self.jobs_done: list[Job] = []

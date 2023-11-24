@@ -7,6 +7,7 @@ import numpy as np
 import progressbar
 import simpy
 from simpy import Environment
+from tqdm import tqdm
 
 from .router import Router
 from .shopfloor import ShopFloor
@@ -54,8 +55,11 @@ class Runner(Generic[R]):
         self.bar = progressbar.ProgressBar(maxval=self.n)
         self.results: list[R] = []
 
-    def __call__(self, parallel=False) -> None:
-        self.results = self._parallel() if parallel else self._serial()
+    def __call__(self, *, parallel=False, processes: int | None) -> list[R]:
+        self.results = (
+            self._parallel(processes=processes) if parallel else self._serial()
+        )
+        return self.results
 
     def __repr__(self) -> str:
         return (
@@ -75,20 +79,19 @@ class Runner(Generic[R]):
     def __getitem__(self, idx: int) -> R:
         return self.results[idx]
 
-    def _parallel(self) -> list[R]:
+    def _parallel(self, processes=4) -> list[R]:
+        pool = Pool(processes=processes)
+
         results: list[R] = []
+        for result in tqdm(
+            pool.imap_unordered(func=worker, iterable=self.todo), total=self.n
+        ):
+            results.append(result)
 
-        with Pool(4) as pool:
-            multiple_results = pool.map_async(
-                worker, self.todo, callback=results.extend
-            )
-            multiple_results.wait()
-
-        multiple_results.get()
         return results
 
     def _serial(self) -> list[R]:
-        return [worker(args) for args in self.bar(self.todo)]
+        return [worker(args) for args in tqdm(self.todo, total=self.n)]
 
     @property
     def todo(self) -> Iterable[tuple[BuildParams, RunParams, bool]]:
