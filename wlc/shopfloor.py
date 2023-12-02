@@ -37,7 +37,7 @@ class ShopFloor:
         "total_wip",
         "machine_wip",
         "machine_workload",
-        "records",
+        "records"
     )
 
     due_date_setter: Callable[[Job], float] | None = None
@@ -90,8 +90,6 @@ class ShopFloor:
             "machine_utilization": defaultdict(int),
             "psp_queue": [],
         }
-
-        self.env.process(self())
 
     def __repr__(self):
         return (
@@ -180,9 +178,6 @@ class ShopFloor:
                 else:
                     j += 1
 
-    def render(self):
-        print(str(self).replace("\n", " "), end="\r", flush=True)
-
     def insert(self, job):
         if self.record_insert_status and job.entry_state is None:
             job.entry_state = self.status(job)  # registriamo lo stato del sistema
@@ -195,7 +190,7 @@ class ShopFloor:
                     job.due_date = new_due_date
         self.psp.add(job)
 
-    def work(self, job):
+    def work(self, job: Job):
         for machine, processing_time in job:
             res = self.machines[machine]
             with res.request(priority=self.sorter_queues(job)) as req:
@@ -234,7 +229,8 @@ class ShopFloor:
 
     def sample(self):
         now = self.env.now
-        if now > self.warmup and round(now % self.sampling) == 0:
+        c = int(now)
+        if now > self.warmup and c % self.sampling == 0:
             self.records["total_wip"].append(self.total_wip)
             self.records["psp_queue"].append(len(self.psp))
             if self.sample_norms_and_queues:
@@ -254,25 +250,25 @@ class ShopFloor:
         psp_queue = self.records["psp_queue"]
         psp_queue_mean = statistics.mean(psp_queue) if psp_queue else 0
 
+        throughput_time_mean = 0
+        psp_waiting_time_mean = 0
+        tardy = 0
+        tardiness_mean = 0
         if self.jobs_done:
             throughput_time = []
             psp_waiting_time = []
             tardy = []
             tardiness = []
-            lateness = []
             for job in self.jobs_done:
                 throughput_time.append(job.total_throughput_time)
                 psp_waiting_time.append(job.psp_waiting)
                 tardy.append(1 if job.tardy else 0)
                 tardiness.append(job.tardiness)
-                if job.tardy:
-                    lateness.append(job.tardiness)
 
-            throughput_time = statistics.mean(throughput_time)
-            psp_waiting_time = statistics.mean(psp_waiting_time)
+            throughput_time_mean = statistics.mean(throughput_time)
+            psp_waiting_time_mean = statistics.mean(psp_waiting_time)
             tardy = statistics.mean(tardy)
-            tardiness = statistics.mean(tardiness)
-            lateness = statistics.mean(lateness)
+            tardiness_mean = statistics.mean(tardiness)
 
         clock = self.env.now or 1
         utilization_rate = {}
@@ -289,12 +285,11 @@ class ShopFloor:
             "jobs_done": len(self.jobs_done),
             "th_rate": len(self.jobs_done) / clock,
             "wip_mean": wip_mean,
-            "throughput_time_mean": throughput_time,
-            "psp_waiting_time_mean": psp_waiting_time,
-            "utilization_rate": utilization_rate,
+            "throughput_time_mean": throughput_time_mean,
+            "psp_waiting_time_mean": psp_waiting_time_mean,
             "tardy": tardy,
-            "tardiness_mean": tardiness,
-            "lateness_mean": lateness,
+            "tardiness_mean": tardiness_mean,
+            "utilization_rate": utilization_rate,
         }
 
     def status(self, job_to_insert):

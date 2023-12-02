@@ -34,6 +34,7 @@ def run(env: Environment, until=3650, seed: int | None = None) -> None:
 def worker(args: tuple[BuildParams, RunParams, bool]):
     build_params, run_params, return_stats = args
     env, router, shopfloor = build(**build_params)
+    env.process(shopfloor())
     run(env, **run_params)
     return shopfloor.stats if return_stats else shopfloor
 
