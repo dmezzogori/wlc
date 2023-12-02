@@ -44,6 +44,7 @@ class Router:
             raise ValueError("Controllare le famiglie")
 
         self.shopfloor.env.process(self())
+        self.new_job_event = Event(env=self.shopfloor.env)
 
     def __repr__(self) -> str:
         return (
@@ -57,6 +58,8 @@ class Router:
         while True:
             yield self.shopfloor.env.timeout(self.timeout)
             self.shopfloor.insert(self.new_job)
+            self.new_job_event.succeed()
+            self.new_job_event = Event(env=self.shopfloor.env)
 
     def __getstate__(self) -> dict[str, Any]:
         d = self.__dict__.copy()
